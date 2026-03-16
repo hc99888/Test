@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>手绘图形线条校正</title>
+  
+  <!-- 添加到主屏幕所需的配置 -->
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="图形校正" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#020617" />
+  
+  <!-- 图标配置 - 使用emoji作为临时图标 -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23020617'/%3E%3Ctext x='50' y='70' font-size='60' text-anchor='middle' fill='%2338bdf8' font-family='Arial'%3E✏️%3C/text%3E%3C/svg%3E" />
+  <link rel="icon" type="image/png" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23020617'/%3E%3Ctext x='50' y='70' font-size='60' text-anchor='middle' fill='%2338bdf8' font-family='Arial'%3E✏️%3C/text%3E%3C/svg%3E" />
+  
+  <!-- 启动屏幕配置 -->
+  <link rel="apple-touch-startup-image" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 750 1334'%3E%3Crect width='750' height='1334' fill='%23020617'/%3E%3Ctext x='375' y='667' font-size='40' text-anchor='middle' fill='%2338bdf8' font-family='Arial'%3E图形校正%3C/text%3E%3C/svg%3E">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      background: #111827;
+      color: #e5e7eb;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      /* 防止在独立应用模式下滑动 */
+      overflow: hidden;
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      -webkit-tap-highlight-color: transparent;
+    }
+    header {
+      padding: 10px 12px;
+      background: #020617;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      /* 增加安全区域适配 */
+      padding-top: env(safe-area-inset-top, 10px);
+      padding-left: env(safe-area-inset-left, 12px);
+      padding-right: env(safe-area-inset-right, 12px);
+    }
+    header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e5e7eb;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 14px;
+      cursor: pointer;
+      background: #1d4ed8;
+      color: #e5e7eb;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      min-width: 60px;
+      -webkit-appearance: none;
+      appearance: none;
+      touch-action: manipulation;
+    }
+    button:disabled {
+      background: #4b5563;
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    button.secondary {
+      background: #374151;
+    }
+    button.danger {
+      background: #b91c1c;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 8px;
+      padding-bottom: env(safe-area-inset-bottom, 8px);
+      padding-left: env(safe-area-inset-left, 8px);
+      padding-right: env(safe-area-inset-right, 8px);
+    }
+    #canvasWrapper {
+      flex: 1;
+      border-radius: 10px;
+      border: 1px solid #1f2937;
+      background: #020617;
+      overflow: hidden;
+      position: relative;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      display: block;
+      background: #020617;
+      cursor: crosshair;
+    }
+    .hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 6px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>手绘图形线条校正</h1>
+    <div class="toolbar">
+      <button id="undoBtn" class="secondary" disabled>撤销</button>
+      <button id="clearBtn" class="danger">清空</button>
+      <button id="saveBtn">保存</button>
+    </div>
+  </header>
+  <main>
+    <div id="canvasWrapper">
+      <canvas id="drawCanvas"></canvas>
+    </div>
+    <div class="hint">
+      画三角形、矩形，松手自动拉直。<br>
+      点击保存图片，可添加到主屏幕使用
+    </div>
+  </main>
+
+  <script>
+    // 原有的JavaScript代码保持不变
+    const canvas = document.getElementById('drawCanvas');
+    const wrapper = document.getElementById('canvasWrapper');
+    const undoBtn = document.getElementById('undoBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const saveBtn = document.getElementById('saveBtn');
+
+    const ctx = canvas.getContext('2d');
+
+    // 适配容器大小
+    function resizeCanvas() {
+      const rect = wrapper.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      redrawAll();
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    
+    // 存储所有图形
+    let shapes = [];
+    let currentPoints = [];
+    let drawing = false;
+
+    const strokeColor = '#38bdf8';
+    const strokeWidth = 3;
+
+    function startDrawing(x, y) {
+      drawing = true;
+      currentPoints = [{ x, y }];
+      redrawAll();
+      ctx.fillStyle = strokeColor;
+      ctx.beginPath();
+      ctx.arc(x, y, strokeWidth/2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function continueDrawing(x, y) {
+      if (!drawing) return;
+      
+      if (x < 0 || y < 0 || x > canvas.width / (window.devicePixelRatio || 1) || 
+          y > canvas.height / (window.devicePixelRatio || 1)) {
+        return;
+      }
+      
+      const last = currentPoints[currentPoints.length - 1];
+      const dx = x - last.x;
+      const dy = y - last.y;
+      const dist2 = dx * dx + dy * dy;
+      
+      if (dist2 > 1) {
+        currentPoints.push({ x, y });
+        redrawAll();
+        if (currentPoints.length >= 2) {
+          ctx.beginPath();
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = strokeWidth;
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+          for (let i = 1; i < currentPoints.length; i++) {
+            ctx.lineTo(currentPoints[i].x, currentPoints[i].y);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+
+    function endDrawing() {
+      if (!drawing) return;
+      drawing = false;
+      
+      if (currentPoints.length < 2) {
+        currentPoints = [];
+        redrawAll();
+        return;
+      }
+      
+      const simplified = simplifyRDP(currentPoints, 3.0);
+      
+      if (simplified.length >= 2) {
+        shapes.push(simplified);
+      }
+      
+      currentPoints = [];
+      redrawAll();
+      updateButtons();
+    }
+
+    function redrawAll() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      for (const shape of shapes) {
+        if (shape.length < 2) continue;
+        
+        const closed = shape.length >= 3 && isClose(shape[0], shape[shape.length - 1], 15);
+        
+        ctx.beginPath();
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = strokeWidth;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.moveTo(shape[0].x, shape[0].y);
+        
+        for (let i = 1; i < shape.length; i++) {
+          ctx.lineTo(shape[i].x, shape[i].y);
+        }
+        
+        if (closed) {
+          ctx.closePath();
+        }
+        ctx.stroke();
+      }
+    }
+
+    function isClose(p1, p2, threshold) {
+      const dx = p1.x - p2.x;
+      const dy = p1.y - p2.y;
+      return Math.sqrt(dx * dx + dy * dy) <= threshold;
+    }
+
+    function simplifyRDP(points, epsilon) {
+      if (points.length < 3) return points.slice();
+
+      const first = points[0];
+      const last = points[points.length - 1];
+
+      let index = -1;
+      let maxDist = 0;
+
+      for (let i = 1; i < points.length - 1; i++) {
+        const d = perpendicularDistance(points[i], first, last);
+        if (d > maxDist) {
+          index = i;
+          maxDist = d;
+        }
+      }
+
+      if (maxDist > epsilon) {
+        const left = simplifyRDP(points.slice(0, index + 1), epsilon);
+        const right = simplifyRDP(points.slice(index), epsilon);
+        return left.slice(0, left.length - 1).concat(right);
+      } else {
+        return [first, last];
+      }
+    }
+
+    function perpendicularDistance(p, p1, p2) {
+      const x = p.x, y = p.y;
+      const x1 = p1.x, y1 = p1.y;
+      const x2 = p2.x, y2 = p2.y;
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      if (dx === 0 && dy === 0) {
+        return Math.hypot(x - x1, y - y1);
+      }
+      const t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+      const tClamped = Math.max(0, Math.min(1, t));
+      const projX = x1 + tClamped * dx;
+      const projY = y1 + tClamped * dy;
+      return Math.hypot(x - projX, y - projY);
+    }
+
+    function getPosFromEvent(e) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      
+      let clientX, clientY;
+      
+      if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+      
+      let x = (clientX - rect.left) * (canvas.width / rect.width) / (window.devicePixelRatio || 1);
+      let y = (clientY - rect.top) * (canvas.height / rect.height) / (window.devicePixelRatio || 1);
+      
+      x = Math.max(0, Math.min(x, canvas.width / (window.devicePixelRatio || 1)));
+      y = Math.max(0, Math.min(y, canvas.height / (window.devicePixelRatio || 1)));
+      
+      return { x, y };
+    }
+
+    // 事件监听
+    canvas.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const pos = getPosFromEvent(e);
+      startDrawing(pos.x, pos.y);
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      e.preventDefault();
+      const pos = getPosFromEvent(e);
+      continueDrawing(pos.x, pos.y);
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      endDrawing();
+    });
+
+    canvas.addEventListener('mouseleave', () => {
+      if (drawing) {
+        endDrawing();
+      }
+    });
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const pos = getPosFromEvent(e);
+      startDrawing(pos.x, pos.y);
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const pos = getPosFromEvent(e);
+      continueDrawing(pos.x, pos.y);
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      endDrawing();
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
+      endDrawing();
+    }, { passive: false });
+
+    // 按钮事件
+    undoBtn.addEventListener('click', () => {
+      if (shapes.length > 0) {
+        shapes.pop();
+        redrawAll();
+        updateButtons();
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      shapes = [];
+      currentPoints = [];
+      drawing = false;
+      redrawAll();
+      updateButtons();
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const rect = wrapper.getBoundingClientRect();
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = rect.width;
+      exportCanvas.height = rect.height;
+      const ectx = exportCanvas.getContext('2d');
+
+      ectx.fillStyle = '#020617';
+      ectx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+      ectx.lineJoin = 'round';
+      ectx.lineCap = 'round';
+      ectx.strokeStyle = strokeColor;
+      ectx.lineWidth = strokeWidth;
+      
+      for (const shape of shapes) {
+        if (shape.length < 2) continue;
+        
+        const closed = shape.length >= 3 && isClose(shape[0], shape[shape.length - 1], 15);
+        ectx.beginPath();
+        ectx.moveTo(shape[0].x, shape[0].y);
+        for (let i = 1; i < shape.length; i++) {
+          ectx.lineTo(shape[i].x, shape[i].y);
+        }
+        if (closed) ectx.closePath();
+        ectx.stroke();
+      }
+
+      const link = document.createElement('a');
+      link.download = 'drawing.png';
+      link.href = exportCanvas.toDataURL('image/png');
+      link.click();
+    });
+
+    function updateButtons() {
+      undoBtn.disabled = shapes.length === 0;
+    }
+
+    setTimeout(resizeCanvas, 10);
+    updateButtons();
+
+    // 防止在独立应用模式下的手势返回
+    document.addEventListener('gesturestart', (e) => e.preventDefault());
+    document.addEventListener('gesturechange', (e) => e.preventDefault());
+    document.addEventListener('gestureend', (e) => e.preventDefault());
+  </script>
+</body>
+</html>
